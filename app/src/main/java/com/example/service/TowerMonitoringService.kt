@@ -44,6 +44,18 @@ class TowerMonitoringService : Service() {
     private val _currentCell = MutableStateFlow(CellModel())
     val currentCell: StateFlow<CellModel> = _currentCell.asStateFlow()
 
+    private val _towerLocation = MutableStateFlow<Pair<Double, Double>?>(null)
+    val towerLocation: StateFlow<Pair<Double, Double>?> = _towerLocation.asStateFlow()
+
+    private val _resolvedAddress = MutableStateFlow("Locating serving tower...")
+    val resolvedAddress: StateFlow<String> = _resolvedAddress.asStateFlow()
+
+    private val _confidenceRange = MutableStateFlow(0)
+    val confidenceRange: StateFlow<Int> = _confidenceRange.asStateFlow()
+
+    val userLocation get() = locationTracker.userLocation
+    val deviceHeading get() = locationTracker.deviceHeading
+
     private var iconStyle = "dBm" // "dBm", "band", "tech", "bars"
     private var alertRsearchBelow = -110 // Alert threshold for RSRP
     private var alertOnUnmapped = false
@@ -63,6 +75,10 @@ class TowerMonitoringService : Service() {
         repository = CellRepository(database.cellDao(), this)
         telephonyTracker = TelephonyTracker(this)
         locationTracker = LocationTracker(this)
+
+        val prefs = getSharedPreferences("TowerLockPrefs", MODE_PRIVATE)
+        telephonyTracker.setPollIntervalSeconds(prefs.getInt("poll_interval", 3))
+        telephonyTracker.setGnbBitLength(prefs.getInt("gnb_bits", 24))
 
         createNotificationChannels()
         startForegroundService()
@@ -90,37 +106,47 @@ class TowerMonitoringService : Service() {
 
                     val userLoc = locationTracker.userLocation.value
                     var resolvedAddress = lookup.address ?: ""
-                    
+
                     if (resolvedAddress.isBlank() && lookup.lat != null && lookup.lon != null) {
                         resolvedAddress = locationTracker.reverseGeocode(lookup.lat, lookup.lon)
                     } else if (resolvedAddress.isBlank()) {
                         resolvedAddress = "Unmapped cell tower location"
                     }
 
-                    // Auto-log cell to Room DB
-                    val logEntry = CellLog(
-                        tech = cell.tech,
-                        mcc = cell.mcc ?: "310",
-                        mnc = cell.mnc ?: "260",
-                        operatorName = cell.operatorName ?: "Carrier",
-                        cellId = cell.cellId,
-                        nodebId = cell.nodebId,
-                        sectorId = cell.sectorId,
-                        pci = cell.pci,
-                        tac = cell.tac,
-                        arfcn = cell.arfcn,
-                        band = cell.bandName,
-                        rsrp = cell.rsrp,
-                        rsrq = cell.rsrq,
-                        sinr = cell.sinr,
-                        lat = userLoc?.latitude ?: 37.7749,
-                        lon = userLoc?.longitude ?: -122.4194,
-                        towerLat = lookup.lat,
-                        towerLon = lookup.lon,
-                        address = resolvedAddress,
-                        source = lookup.source
-                    )
-                    repository.insertLog(logEntry)
+                    _towerLocation.value = if (lookup.lat != null && lookup.lon != null) {
+                        Pair(lookup.lat, lookup.lon)
+                    } else {
+                        null
+                    }
+                    _resolvedAddress.value = resolvedAddress
+                    _confidenceRange.value = lookup.range
+
+                    // Auto-log cell to Room DB (requires a real GPS fix; never fabricate coordinates)
+                    if (userLoc != null) {
+                        val logEntry = CellLog(
+                            tech = cell.tech,
+                            mcc = cell.mcc ?: "310",
+                            mnc = cell.mnc ?: "260",
+                            operatorName = cell.operatorName ?: "Carrier",
+                            cellId = cell.cellId,
+                            nodebId = cell.nodebId,
+                            sectorId = cell.sectorId,
+                            pci = cell.pci,
+                            tac = cell.tac,
+                            arfcn = cell.arfcn,
+                            band = cell.bandName,
+                            rsrp = cell.rsrp,
+                            rsrq = cell.rsrq,
+                            sinr = cell.sinr,
+                            lat = userLoc.latitude,
+                            lon = userLoc.longitude,
+                            towerLat = lookup.lat,
+                            towerLon = lookup.lon,
+                            address = resolvedAddress,
+                            source = lookup.source
+                        )
+                        repository.insertLog(logEntry)
+                    }
 
                     // Update Home Screen Widget
                     com.example.widget.TowerLockWidget.sendWidgetUpdate(this@TowerMonitoringService, cell, resolvedAddress)
@@ -161,11 +187,19 @@ class TowerMonitoringService : Service() {
             val prefs = getSharedPreferences("TowerLockPrefs", MODE_PRIVATE)
             if (prefs.getBoolean("alert_5g_drop", true)) {
                 val userLoc = locationTracker.userLocation.value
-                val latStr = userLoc?.latitude?.let { String.format(java.util.Locale.US, "%.5f", it) } ?: "37.77490"
-                val lonStr = userLoc?.longitude?.let { String.format(java.util.Locale.US, "%.5f", it) } ?: "-122.41940"
-                triggerAlert("5G Connection Dropped", "Device switched from 5G SA to legacy LTE at: ($latStr, $lonStr)")
+                val locationLabel = if (userLoc != null) {
+                    String.format(
+                        java.util.Locale.US,
+                        "(%.5f, %.5f)",
+                        userLoc.latitude,
+                        userLoc.longitude
+                    )
+                } else {
+                    "location unavailable"
+                }
+                triggerAlert("5G Connection Dropped", "Device switched from 5G SA to legacy LTE at: $locationLabel")
 
-                if (prefs.getBoolean("log_drop_coords", true)) {
+                if (prefs.getBoolean("log_drop_coords", true) && userLoc != null) {
                     serviceScope.launch {
                         val dropLog = CellLog(
                             tech = "5G SA to LTE Drop",
@@ -182,8 +216,8 @@ class TowerMonitoringService : Service() {
                             rsrp = current.rsrp,
                             rsrq = current.rsrq,
                             sinr = current.sinr,
-                            lat = userLoc?.latitude ?: 37.7749,
-                            lon = userLoc?.longitude ?: -122.4194,
+                            lat = userLoc.latitude,
+                            lon = userLoc.longitude,
                             towerLat = null,
                             towerLon = null,
                             address = "Recorded 5G SA to LTE drop coordinates",
@@ -349,8 +383,8 @@ class TowerMonitoringService : Service() {
             "ACTION_SNAPSHOT" -> {
                 serviceScope.launch {
                     val current = _currentCell.value
-                    if (current.cellId > 0) {
-                        val userLoc = locationTracker.userLocation.value
+                    val userLoc = locationTracker.userLocation.value
+                    if (current.cellId > 0 && userLoc != null) {
                         val snapshotLog = CellLog(
                             tech = "${current.tech} (SNAPSHOT)",
                             mcc = current.mcc ?: "310",
@@ -366,15 +400,17 @@ class TowerMonitoringService : Service() {
                             rsrp = current.rsrp,
                             rsrq = current.rsrq,
                             sinr = current.sinr,
-                            lat = userLoc?.latitude ?: 37.7749,
-                            lon = userLoc?.longitude ?: -122.4194,
-                            towerLat = null,
-                            towerLon = null,
+                            lat = userLoc.latitude,
+                            lon = userLoc.longitude,
+                            towerLat = _towerLocation.value?.first,
+                            towerLon = _towerLocation.value?.second,
                             address = "Manual snapshot saved by user",
                             source = "Manual Snapshot"
                         )
                         repository.insertLog(snapshotLog)
                         triggerAlert("Snapshot Saved", "Serving cell state recorded in log history.")
+                    } else if (current.cellId > 0) {
+                        triggerAlert("Snapshot Failed", "GPS location not yet available; try again shortly.")
                     }
                 }
             }
@@ -385,6 +421,12 @@ class TowerMonitoringService : Service() {
             "UPDATE_ALERT_THRESHOLDS" -> {
                 alertRsearchBelow = intent.getIntExtra("RSRP_THRESHOLD", -110)
                 alertOnUnmapped = intent.getBooleanExtra("ALERT_UNMAPPED", false)
+            }
+            "UPDATE_POLL_INTERVAL" -> {
+                telephonyTracker.setPollIntervalSeconds(intent.getIntExtra("POLL_INTERVAL", 3))
+            }
+            "UPDATE_GNB_BITS" -> {
+                telephonyTracker.setGnbBitLength(intent.getIntExtra("GNB_BITS", 24))
             }
         }
         return START_STICKY

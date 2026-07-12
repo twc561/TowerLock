@@ -44,6 +44,8 @@ fun MapScreen(
     userLon: Double?,
     towerLat: Double?,
     towerLon: Double?,
+    towerAddress: String,
+    confidenceMeters: Int,
     allTowers: List<TowerDbEntry>
 ) {
     val context = LocalContext.current
@@ -117,8 +119,8 @@ fun MapScreen(
                                 cid = cell.cellId,
                                 lat = towerLat,
                                 lon = towerLon,
-                                range = cell.distanceEstimateMeters.toInt(),
-                                address = "Serving tower near user"
+                                range = confidenceMeters,
+                                address = towerAddress
                             )
                             isBottomSheetOpen = true
                             true

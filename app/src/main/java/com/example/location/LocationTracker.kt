@@ -10,8 +10,13 @@ import android.hardware.SensorManager
 import android.location.Geocoder
 import android.location.Location
 import android.os.Build
+import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationCallback
+import com.google.android.gms.location.LocationRequest
+import com.google.android.gms.location.LocationResult
 import com.google.android.gms.location.LocationServices
 import com.google.android.gms.location.Priority
 import kotlinx.coroutines.Dispatchers
@@ -25,7 +30,8 @@ class LocationTracker(
     private val context: Context
 ) : SensorEventListener {
 
-    private val fusedLocationClient = LocationServices.getFusedLocationProviderClient(context)
+    private val fusedLocationClient: FusedLocationProviderClient =
+        LocationServices.getFusedLocationProviderClient(context)
     private val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
 
     private val _userLocation = MutableStateFlow<Location?>(null)
@@ -33,6 +39,8 @@ class LocationTracker(
 
     private val _deviceHeading = MutableStateFlow(0f)
     val deviceHeading: StateFlow<Float> = _deviceHeading.asStateFlow()
+
+    private var locationCallback: LocationCallback? = null
 
     private var gravityValues = FloatArray(3)
     private var geomagneticValues = FloatArray(3)
@@ -45,47 +53,44 @@ class LocationTracker(
 
     fun startLocationTracking() {
         if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            // Set mock location for emulator so we don't return null
-            val mockLoc = Location("GPS").apply {
-                latitude = 37.7749
-                longitude = -122.4194
-                accuracy = 10f
-                time = System.currentTimeMillis()
-            }
-            _userLocation.value = mockLoc
+            Log.w("LocationTracker", "Fine location permission missing; no location updates will be delivered")
             return
         }
 
+        // Seed with the last known fix immediately so consumers aren't stuck on null
+        // while waiting for the first fresh update to arrive.
         try {
-            fusedLocationClient.getCurrentLocation(
-                Priority.PRIORITY_HIGH_ACCURACY,
-                null
-            ).addOnSuccessListener { location ->
-                if (location != null) {
-                    _userLocation.value = location
-                } else {
-                    fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
-                        if (lastLoc != null) {
-                            _userLocation.value = lastLoc
-                        } else {
-                            // Fallback mock
-                            val fallback = Location("GPS").apply {
-                                latitude = 37.7749
-                                longitude = -122.4194
-                                accuracy = 15f
-                                time = System.currentTimeMillis()
-                            }
-                            _userLocation.value = fallback
-                        }
-                    }
+            fusedLocationClient.lastLocation.addOnSuccessListener { lastLoc ->
+                if (lastLoc != null) {
+                    _userLocation.value = lastLoc
                 }
             }
+        } catch (e: SecurityException) {
+            Log.e("LocationTracker", "Location permission missing", e)
+            return
+        }
+
+        val request = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000L)
+            .setMinUpdateIntervalMillis(2000L)
+            .build()
+
+        val callback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { _userLocation.value = it }
+            }
+        }
+        locationCallback = callback
+
+        try {
+            fusedLocationClient.requestLocationUpdates(request, callback, Looper.getMainLooper())
         } catch (e: SecurityException) {
             Log.e("LocationTracker", "Location permission missing", e)
         }
     }
 
     fun stopLocationTracking() {
+        locationCallback?.let { fusedLocationClient.removeLocationUpdates(it) }
+        locationCallback = null
         stopCompass()
     }
 

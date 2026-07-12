@@ -67,7 +67,7 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 monitoringService?.currentCell?.collectLatest { cell ->
                     currentCellState.value = cell
-                    
+
                     // Add RSRP reading to history
                     if (cell.rsrp != -140) {
                         val currentList = rsrpHistoryState.value.toMutableList()
@@ -76,6 +76,23 @@ class MainActivity : ComponentActivity() {
                         rsrpHistoryState.value = currentList
                     }
                 }
+            }
+            lifecycleScope.launch {
+                monitoringService?.userLocation?.collectLatest { location ->
+                    userLocationState.value = location?.let { it.latitude to it.longitude }
+                }
+            }
+            lifecycleScope.launch {
+                monitoringService?.towerLocation?.collectLatest { towerLocationState.value = it }
+            }
+            lifecycleScope.launch {
+                monitoringService?.resolvedAddress?.collectLatest { resolvedAddressState.value = it }
+            }
+            lifecycleScope.launch {
+                monitoringService?.confidenceRange?.collectLatest { confidenceRangeState.value = it }
+            }
+            lifecycleScope.launch {
+                monitoringService?.deviceHeading?.collectLatest { deviceHeadingState.value = it }
             }
         }
 
@@ -87,6 +104,11 @@ class MainActivity : ComponentActivity() {
 
     private val currentCellState = mutableStateOf(CellModel())
     private val rsrpHistoryState = mutableStateOf<List<Int>>(emptyList())
+    private val userLocationState = mutableStateOf<Pair<Double, Double>?>(null)
+    private val towerLocationState = mutableStateOf<Pair<Double, Double>?>(null)
+    private val resolvedAddressState = mutableStateOf("Locating serving tower...")
+    private val confidenceRangeState = mutableStateOf(0)
+    private val deviceHeadingState = mutableStateOf(0f)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -101,6 +123,11 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     currentCell = currentCellState.value,
                     rsrpHistory = rsrpHistoryState.value,
+                    userLocation = userLocationState.value,
+                    towerLocation = towerLocationState.value,
+                    resolvedAddress = resolvedAddressState.value,
+                    confidenceRange = confidenceRangeState.value,
+                    deviceHeading = deviceHeadingState.value,
                     onStartService = { startAndBindService() },
                     onStopService = { stopAndUnbindService() },
                     onBackupDb = { backupDatabase() },
@@ -198,6 +225,11 @@ fun MainAppScreen(
     repository: CellRepository,
     currentCell: CellModel,
     rsrpHistory: List<Int>,
+    userLocation: Pair<Double, Double>?,
+    towerLocation: Pair<Double, Double>?,
+    resolvedAddress: String,
+    confidenceRange: Int,
+    deviceHeading: Float,
     onStartService: () -> Unit,
     onStopService: () -> Unit,
     onBackupDb: () -> Unit,
@@ -298,11 +330,13 @@ fun MainAppScreen(
                 when (selectedTab) {
                     0 -> DashboardScreen(
                         cell = currentCell,
-                        userLat = 37.7749, // SF default
-                        userLon = -122.4194,
-                        towerLat = if (currentCell.cellId > 0) 37.7749 else null,
-                        towerLon = if (currentCell.cellId > 0) -122.4194 else null,
-                        deviceHeading = 45f,
+                        userLat = userLocation?.first,
+                        userLon = userLocation?.second,
+                        towerLat = towerLocation?.first,
+                        towerLon = towerLocation?.second,
+                        resolvedAddress = resolvedAddress,
+                        confidenceMeters = confidenceRange,
+                        deviceHeading = deviceHeading,
                         rsrpHistory = rsrpHistory,
                         onSnapshotClick = {
                             val intent = Intent(context, TowerMonitoringService::class.java).apply {
@@ -313,10 +347,12 @@ fun MainAppScreen(
                     )
                     1 -> MapScreen(
                         cell = currentCell,
-                        userLat = 37.7749,
-                        userLon = -122.4194,
-                        towerLat = if (currentCell.cellId > 0) 37.7749 else null,
-                        towerLon = if (currentCell.cellId > 0) -122.4194 else null,
+                        userLat = userLocation?.first,
+                        userLon = userLocation?.second,
+                        towerLat = towerLocation?.first,
+                        towerLon = towerLocation?.second,
+                        towerAddress = resolvedAddress,
+                        confidenceMeters = confidenceRange,
                         allTowers = towers
                     )
                     2 -> {
@@ -338,12 +374,18 @@ fun MainAppScreen(
                         },
                         onSavePollInterval = { sec ->
                             val intent = Intent(context, TowerMonitoringService::class.java).apply {
-                                action = "UPDATE_ALERT_THRESHOLDS"
-                                putExtra("RSRP_THRESHOLD", -110)
+                                action = "UPDATE_POLL_INTERVAL"
+                                putExtra("POLL_INTERVAL", sec)
                             }
                             context.startService(intent)
                         },
-                        onSaveGnbBitLength = { _ -> },
+                        onSaveGnbBitLength = { bits ->
+                            val intent = Intent(context, TowerMonitoringService::class.java).apply {
+                                action = "UPDATE_GNB_BITS"
+                                putExtra("GNB_BITS", bits)
+                            }
+                            context.startService(intent)
+                        },
                         onSaveIconStyle = { style ->
                             val intent = Intent(context, TowerMonitoringService::class.java).apply {
                                 action = "UPDATE_ICON_STYLE"

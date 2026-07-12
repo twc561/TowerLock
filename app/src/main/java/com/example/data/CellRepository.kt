@@ -63,10 +63,6 @@ class CellRepository(
         if (!openCellIdApiKey.isNullOrBlank()) {
             try {
                 // OpenCelliD API uses LAC for area, cellid for cid
-                val radioType = when {
-                    tech.contains("5G", ignoreCase = true) -> "LTE" // OpenCelliD maps NR/LTE similarly or radio="LTE"
-                    else -> "LTE"
-                }
                 val url = "https://opencellid.org/cell/get?key=$openCellIdApiKey&mcc=$mcc&mnc=$mnc&lac=$area&cellid=$cid&format=json"
                 val request = Request.Builder().url(url).build()
                 okHttpClient.newCall(request).execute().use { response ->

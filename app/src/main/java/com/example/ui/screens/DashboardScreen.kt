@@ -44,6 +44,8 @@ fun DashboardScreen(
     userLon: Double?,
     towerLat: Double?,
     towerLon: Double?,
+    resolvedAddress: String,
+    confidenceMeters: Int,
     deviceHeading: Float,
     rsrpHistory: List<Int>,
     onSnapshotClick: () -> Unit
@@ -121,7 +123,7 @@ fun DashboardScreen(
 
                 // Street Address Hero Text
                 Text(
-                    text = if (towerLat != null) "Market St, San Francisco, CA" else "Locating Serving Tower...",
+                    text = if (towerLat != null) resolvedAddress else "Locating Serving Tower...",
                     style = MaterialTheme.typography.headlineSmall,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
@@ -140,7 +142,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = if (towerLat != null) "Confidence: ±250 m" else "Calculating triangulation metrics",
+                        text = if (towerLat != null) "Confidence: ±$confidenceMeters m" else "Calculating triangulation metrics",
                         style = MaterialTheme.typography.bodySmall,
                         color = Color(0xFF38BDF8)
                     )
