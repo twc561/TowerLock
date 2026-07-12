@@ -22,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.FileProvider
@@ -171,13 +172,41 @@ fun LogsScreen(
         Spacer(modifier = Modifier.height(8.dp))
 
         if (filteredLogs.isEmpty()) {
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f),
-                contentAlignment = Alignment.Center
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Text("No matching logged towers found.", color = Color.Gray)
+                Icon(
+                    imageVector = if (logs.isEmpty()) Icons.Default.History else Icons.Default.Search,
+                    contentDescription = null,
+                    tint = Color(0xFF475569),
+                    modifier = Modifier.size(48.dp)
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = if (logs.isEmpty()) {
+                        "No towers logged yet"
+                    } else {
+                        "No logs match your search"
+                    },
+                    color = Color.White,
+                    fontWeight = FontWeight.Bold
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = if (logs.isEmpty()) {
+                        "Cell tower connections are recorded automatically while monitoring is active."
+                    } else {
+                        "Try a different search term or tech filter."
+                    },
+                    color = Color.Gray,
+                    fontSize = 12.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(horizontal = 32.dp)
+                )
             }
         } else {
             LazyColumn(

@@ -74,6 +74,11 @@ fun DashboardScreen(
             .padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        if (cell.cellId <= 0) {
+            AcquiringSignalState()
+            return@Column
+        }
+
         // Hero Card
         Card(
             modifier = Modifier
@@ -545,6 +550,48 @@ fun CompassGraphic(bearing: Float, deviceHeading: Float) {
         drawPath(
             path = arrowPath,
             color = Color(0xFF38BDF8)
+        )
+    }
+}
+
+@Composable
+fun AcquiringSignalState() {
+    val infiniteTransition = rememberInfiniteTransition(label = "acquiringSignal")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1000),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "acquiringSignalAlpha"
+    )
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        Icon(
+            imageVector = Icons.Default.SignalCellularAlt,
+            contentDescription = null,
+            tint = Color(0xFF10B981).copy(alpha = pulseAlpha),
+            modifier = Modifier.size(64.dp)
+        )
+        Spacer(modifier = Modifier.height(16.dp))
+        Text(
+            text = "Acquiring Signal...",
+            style = MaterialTheme.typography.titleMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(modifier = Modifier.height(6.dp))
+        Text(
+            text = "Waiting for the device to report a serving cell tower.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color(0xFF94A3B8),
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 32.dp)
         )
     }
 }

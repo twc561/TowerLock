@@ -1,52 +1,34 @@
 package com.example.ui.theme
 
-import android.os.Build
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
-import androidx.compose.material3.dynamicDarkColorScheme
-import androidx.compose.material3.dynamicLightColorScheme
-import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.platform.LocalContext
 
-private val DarkColorScheme =
-  darkColorScheme(primary = Purple80, secondary = PurpleGrey80, tertiary = Pink80)
-
-private val LightColorScheme =
-  lightColorScheme(
-    primary = Purple40,
-    secondary = PurpleGrey40,
-    tertiary = Pink40,
-
-    /* Other default colors to override
-    background = Color(0xFFFFFBFE),
-    surface = Color(0xFFFFFBFE),
-    onPrimary = Color.White,
-    onSecondary = Color.White,
-    onTertiary = Color.White,
-    onBackground = Color(0xFF1C1B1F),
-    onSurface = Color(0xFF1C1B1F),
-    */
-  )
+// TowerLock is a fixed-identity "mission control" dark UI by design — every
+// screen already renders against TlBackground/TlSurface regardless of system
+// theme. Dynamic Material You color would only reach the handful of stock
+// Material components screens don't explicitly style (AlertDialog, default
+// Slider/Switch tracks), producing a jarring mismatch against the rest of the
+// UI. So this app deliberately has one ColorScheme, not a light/dark pair.
+private val TowerLockColorScheme = darkColorScheme(
+  primary = TlEmerald,
+  onPrimary = TlTextPrimary,
+  secondary = TlSky,
+  onSecondary = TlTextPrimary,
+  tertiary = TlPink,
+  onTertiary = TlTextPrimary,
+  background = TlBackground,
+  onBackground = TlTextPrimary,
+  surface = TlSurface,
+  onSurface = TlTextPrimary,
+  surfaceVariant = TlSurfaceVariant,
+  onSurfaceVariant = TlTextSecondary,
+  outline = TlOutline,
+  error = TlRed,
+  onError = TlTextPrimary,
+)
 
 @Composable
-fun MyApplicationTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Dynamic color is available on Android 12+
-  dynamicColor: Boolean = true,
-  content: @Composable () -> Unit,
-) {
-  val colorScheme =
-    when {
-      dynamicColor && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S -> {
-        val context = LocalContext.current
-        if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
-      }
-
-      darkTheme -> DarkColorScheme
-      else -> LightColorScheme
-    }
-
-  MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
+fun MyApplicationTheme(content: @Composable () -> Unit) {
+  MaterialTheme(colorScheme = TowerLockColorScheme, typography = Typography, content = content)
 }

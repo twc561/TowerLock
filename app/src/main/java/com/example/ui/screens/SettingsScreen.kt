@@ -1,19 +1,27 @@
 package com.example.ui.screens
 
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.FileUpload
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -29,10 +37,14 @@ fun SettingsScreen(
     onSaveGnbBitLength: (Int) -> Unit,
     onSaveIconStyle: (String) -> Unit,
     onBackupDb: () -> Unit,
-    onRestoreDb: () -> Unit
+    onRestoreDb: () -> Unit,
+    onImportCsv: (Uri) -> Unit
 ) {
     val context = LocalContext.current
     val prefs = remember { context.getSharedPreferences("TowerLockPrefs", Context.MODE_PRIVATE) }
+    val csvImportLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri -> uri?.let(onImportCsv) }
 
     var openCellIdKey by remember { mutableStateOf(prefs.getString("opencellid_key", "") ?: "") }
     var pollInterval by remember { mutableStateOf(prefs.getInt("poll_interval", 3)) }
@@ -71,14 +83,38 @@ fun SettingsScreen(
             colors = CardDefaults.cardColors(containerColor = Color(0xFF1E293B))
         ) {
             Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "OpenCelliD Integration",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold
+                    )
+                    val isConfigured = openCellIdKey.isNotBlank()
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                if (isConfigured) Color(0xFF10B981).copy(alpha = 0.18f)
+                                else Color(0xFFEF4444).copy(alpha = 0.18f)
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = if (isConfigured) "CONFIGURED" else "NOT SET",
+                            color = if (isConfigured) Color(0xFF10B981) else Color(0xFFEF4444),
+                            style = MaterialTheme.typography.labelSmall,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
                 Text(
-                    text = "OpenCelliD Integration",
-                    style = MaterialTheme.typography.titleSmall,
-                    color = Color.White,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Supply an API key to query physical tower coordinates and street addresses when unmapped cells are encountered.",
+                    text = "Real-world cell towers resolve to an address only when this key is set — " +
+                            "without it, almost every tower you connect to will show as \"Unmapped.\"",
                     style = MaterialTheme.typography.bodySmall,
                     color = Color(0xFF94A3B8)
                 )
@@ -100,6 +136,29 @@ fun SettingsScreen(
                     singleLine = true,
                     shape = RoundedCornerShape(8.dp)
                 )
+                Row(
+                    modifier = Modifier
+                        .clickable {
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://my.opencellid.org/register"))
+                            context.startActivity(intent)
+                        }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Get a free API key at opencellid.org",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF38BDF8),
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Default.OpenInNew,
+                        contentDescription = "Open OpenCelliD sign-up page",
+                        tint = Color(0xFF38BDF8),
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
             }
         }
 
@@ -321,6 +380,33 @@ fun SettingsScreen(
                         Icon(imageVector = Icons.Default.Restore, contentDescription = "Restore")
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Restore DB")
+                    }
+                }
+
+                Divider(color = Color(0xFF334155))
+
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text(
+                        text = "Bulk Tower Import",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Import a CSV of known towers (radio, mcc, mnc, area, cid, lat, lon, range, address) " +
+                                "so they resolve locally without needing an API lookup.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = Color(0xFF94A3B8)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Button(
+                        onClick = { csvImportLauncher.launch("*/*") },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(imageVector = Icons.Default.FileUpload, contentDescription = "Import CSV")
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Import Tower CSV")
                     }
                 }
             }

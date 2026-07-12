@@ -15,9 +15,15 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -35,8 +41,8 @@ import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.example.data.AppDatabase
-import com.example.data.CellLog
 import com.example.data.CellRepository
+import com.example.data.TowerDbEntry
 import com.example.service.TowerMonitoringService
 import com.example.telephony.CellModel
 import com.example.ui.screens.DashboardScreen
@@ -220,6 +226,7 @@ class MainActivity : ComponentActivity() {
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppScreen(
     repository: CellRepository,
@@ -238,6 +245,7 @@ fun MainAppScreen(
     val context = LocalContext.current
     var selectedTab by remember { mutableIntStateOf(0) }
     var hasPermissions by remember { mutableStateOf(hasAllRequiredPermissions(context)) }
+    var isMonitoringActive by remember { mutableStateOf(hasPermissions) }
 
     val logs by repository.allLogs.collectAsState(initial = emptyList())
     val towers by repository.allTowers.collectAsState(initial = emptyList())
@@ -248,6 +256,7 @@ fun MainAppScreen(
         val granted = perms.values.all { it }
         hasPermissions = granted
         if (granted) {
+            isMonitoringActive = true
             onStartService()
         } else {
             Toast.makeText(context, "Permissions required for monitoring", Toast.LENGTH_LONG).show()
@@ -255,6 +264,21 @@ fun MainAppScreen(
     }
 
     Scaffold(
+        topBar = {
+            if (hasPermissions) {
+                TowerLockTopBar(
+                    isMonitoring = isMonitoringActive,
+                    onToggleMonitoring = {
+                        if (isMonitoringActive) {
+                            onStopService()
+                        } else {
+                            onStartService()
+                        }
+                        isMonitoringActive = !isMonitoringActive
+                    }
+                )
+            }
+        },
         bottomBar = {
             if (hasPermissions) {
                 NavigationBar(
@@ -345,16 +369,37 @@ fun MainAppScreen(
                             context.startService(intent)
                         }
                     )
-                    1 -> MapScreen(
-                        cell = currentCell,
-                        userLat = userLocation?.first,
-                        userLon = userLocation?.second,
-                        towerLat = towerLocation?.first,
-                        towerLon = towerLocation?.second,
-                        towerAddress = resolvedAddress,
-                        confidenceMeters = confidenceRange,
-                        allTowers = towers
-                    )
+                    1 -> {
+                        val coroutineScope = rememberCoroutineScope()
+                        MapScreen(
+                            cell = currentCell,
+                            userLat = userLocation?.first,
+                            userLon = userLocation?.second,
+                            towerLat = towerLocation?.first,
+                            towerLon = towerLocation?.second,
+                            towerAddress = resolvedAddress,
+                            confidenceMeters = confidenceRange,
+                            allTowers = towers,
+                            onSaveTower = { lat, lon, address ->
+                                coroutineScope.launch {
+                                    repository.insertCustomTower(
+                                        TowerDbEntry(
+                                            radio = if (currentCell.tech.contains("5G")) "NR" else "LTE",
+                                            mcc = currentCell.mcc ?: "310",
+                                            mnc = currentCell.mnc ?: "260",
+                                            area = currentCell.tac,
+                                            cid = currentCell.cellId,
+                                            lat = lat,
+                                            lon = lon,
+                                            range = 50,
+                                            address = address
+                                        )
+                                    )
+                                    Toast.makeText(context, "Tower location saved", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        )
+                    }
                     2 -> {
                         val coroutineScope = rememberCoroutineScope()
                         LogsScreen(
@@ -367,38 +412,121 @@ fun MainAppScreen(
                             }
                         )
                     }
-                    3 -> SettingsScreen(
-                        onSaveApiKey = { key ->
-                            context.getSharedPreferences("TowerLockPrefs", Context.MODE_PRIVATE)
-                                .edit().putString("opencellid_key", key).apply()
-                        },
-                        onSavePollInterval = { sec ->
-                            val intent = Intent(context, TowerMonitoringService::class.java).apply {
-                                action = "UPDATE_POLL_INTERVAL"
-                                putExtra("POLL_INTERVAL", sec)
+                    3 -> {
+                        val coroutineScope = rememberCoroutineScope()
+                        SettingsScreen(
+                            onSaveApiKey = { key ->
+                                context.getSharedPreferences("TowerLockPrefs", Context.MODE_PRIVATE)
+                                    .edit().putString("opencellid_key", key).apply()
+                            },
+                            onSavePollInterval = { sec ->
+                                val intent = Intent(context, TowerMonitoringService::class.java).apply {
+                                    action = "UPDATE_POLL_INTERVAL"
+                                    putExtra("POLL_INTERVAL", sec)
+                                }
+                                context.startService(intent)
+                            },
+                            onSaveGnbBitLength = { bits ->
+                                val intent = Intent(context, TowerMonitoringService::class.java).apply {
+                                    action = "UPDATE_GNB_BITS"
+                                    putExtra("GNB_BITS", bits)
+                                }
+                                context.startService(intent)
+                            },
+                            onSaveIconStyle = { style ->
+                                val intent = Intent(context, TowerMonitoringService::class.java).apply {
+                                    action = "UPDATE_ICON_STYLE"
+                                    putExtra("STYLE", style)
+                                }
+                                context.startService(intent)
+                            },
+                            onBackupDb = onBackupDb,
+                            onRestoreDb = onRestoreDb,
+                            onImportCsv = { uri ->
+                                coroutineScope.launch {
+                                    val imported = context.contentResolver.openInputStream(uri)?.use { stream ->
+                                        repository.importCsv(stream)
+                                    } ?: 0
+                                    Toast.makeText(context, "Imported $imported towers", Toast.LENGTH_SHORT).show()
+                                }
                             }
-                            context.startService(intent)
-                        },
-                        onSaveGnbBitLength = { bits ->
-                            val intent = Intent(context, TowerMonitoringService::class.java).apply {
-                                action = "UPDATE_GNB_BITS"
-                                putExtra("GNB_BITS", bits)
-                            }
-                            context.startService(intent)
-                        },
-                        onSaveIconStyle = { style ->
-                            val intent = Intent(context, TowerMonitoringService::class.java).apply {
-                                action = "UPDATE_ICON_STYLE"
-                                putExtra("STYLE", style)
-                            }
-                            context.startService(intent)
-                        },
-                        onBackupDb = onBackupDb,
-                        onRestoreDb = onRestoreDb
-                    )
+                        )
+                    }
                 }
             }
         }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun TowerLockTopBar(isMonitoring: Boolean, onToggleMonitoring: () -> Unit) {
+    TopAppBar(
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Default.SignalCellularAlt,
+                    contentDescription = null,
+                    tint = com.example.ui.theme.TlEmerald,
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("TowerLock", fontWeight = FontWeight.Bold, color = Color.White)
+            }
+        },
+        actions = {
+            LiveStatusIndicator(isMonitoring = isMonitoring)
+            IconButton(onClick = onToggleMonitoring) {
+                Icon(
+                    imageVector = if (isMonitoring) Icons.Default.PauseCircle else Icons.Default.PlayCircle,
+                    contentDescription = if (isMonitoring) "Stop monitoring" else "Start monitoring",
+                    tint = if (isMonitoring) com.example.ui.theme.TlTextSecondary else com.example.ui.theme.TlEmerald
+                )
+            }
+        },
+        colors = TopAppBarDefaults.topAppBarColors(
+            containerColor = com.example.ui.theme.TlSurface,
+            titleContentColor = Color.White
+        )
+    )
+}
+
+@Composable
+fun LiveStatusIndicator(isMonitoring: Boolean) {
+    val infiniteTransition = rememberInfiniteTransition(label = "liveDot")
+    val dotAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 900),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "liveDotAlpha"
+    )
+
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        modifier = Modifier.padding(end = 4.dp)
+    ) {
+        Box(
+            modifier = Modifier
+                .size(8.dp)
+                .clip(CircleShape)
+                .background(
+                    if (isMonitoring) {
+                        com.example.ui.theme.TlEmerald.copy(alpha = dotAlpha)
+                    } else {
+                        com.example.ui.theme.TlTextMuted
+                    }
+                )
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = if (isMonitoring) "LIVE" else "PAUSED",
+            color = if (isMonitoring) com.example.ui.theme.TlEmerald else com.example.ui.theme.TlTextMuted,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.Bold
+        )
     }
 }
 
