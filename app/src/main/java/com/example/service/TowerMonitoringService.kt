@@ -58,7 +58,6 @@ class TowerMonitoringService : Service() {
 
     private var iconStyle = "dBm" // "dBm", "band", "tech", "bars"
     private var alertRsearchBelow = -110 // Alert threshold for RSRP
-    private var alertOnUnmapped = false
     private var isLoggingPaused = false
 
     inner class LocalBinder : Binder() {
@@ -105,13 +104,10 @@ class TowerMonitoringService : Service() {
                     )
 
                     val userLoc = locationTracker.userLocation.value
-                    var resolvedAddress = lookup.address ?: ""
-
-                    if (resolvedAddress.isBlank() && lookup.lat != null && lookup.lon != null) {
-                        resolvedAddress = locationTracker.reverseGeocode(lookup.lat, lookup.lon)
-                    } else if (resolvedAddress.isBlank()) {
-                        resolvedAddress = "Unmapped cell tower location"
-                    }
+                    // Repository already resolves and caches the address whenever coordinates
+                    // are known; only a truly unmapped cell reaches us with no address at all.
+                    val resolvedAddress = lookup.address?.takeIf { it.isNotBlank() }
+                        ?: "Unmapped cell tower location"
 
                     _towerLocation.value = if (lookup.lat != null && lookup.lon != null) {
                         Pair(lookup.lat, lookup.lon)
@@ -177,7 +173,7 @@ class TowerMonitoringService : Service() {
             triggerAlert("Weak Signal Alert", "RSRP dropped below threshold to ${current.rsrp} dBm")
         }
         // 4. Connecting to an unmapped tower
-        if (source == "Unmapped cell" && alertOnUnmapped && getSharedPreferences("TowerLockPrefs", MODE_PRIVATE).getBoolean("alert_unmapped", false)) {
+        if (source == "Unmapped cell" && getSharedPreferences("TowerLockPrefs", MODE_PRIVATE).getBoolean("alert_unmapped", false)) {
             triggerAlert("Unmapped Tower Detected", "Connected to cell ${current.cellId} which is not mapped.")
         }
         // 5. 5G SA to LTE Drop
@@ -420,7 +416,6 @@ class TowerMonitoringService : Service() {
             }
             "UPDATE_ALERT_THRESHOLDS" -> {
                 alertRsearchBelow = intent.getIntExtra("RSRP_THRESHOLD", -110)
-                alertOnUnmapped = intent.getBooleanExtra("ALERT_UNMAPPED", false)
             }
             "UPDATE_POLL_INTERVAL" -> {
                 telephonyTracker.setPollIntervalSeconds(intent.getIntExtra("POLL_INTERVAL", 3))

@@ -33,6 +33,9 @@ interface CellDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTowers(entries: List<TowerDbEntry>)
 
+    @Query("UPDATE tower_db_entries SET address = :address WHERE mcc = :mcc AND mnc = :mnc AND area = :area AND cid = :cid")
+    suspend fun updateTowerAddress(mcc: String, mnc: String, area: Int, cid: Long, address: String)
+
     @Query("SELECT * FROM tower_db_entries")
     fun getAllTowers(): Flow<List<TowerDbEntry>>
 

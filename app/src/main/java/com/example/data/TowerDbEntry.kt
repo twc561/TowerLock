@@ -1,9 +1,13 @@
 package com.example.data
 
 import androidx.room.Entity
+import androidx.room.Index
 import androidx.room.PrimaryKey
 
-@Entity(tableName = "tower_db_entries")
+@Entity(
+    tableName = "tower_db_entries",
+    indices = [Index(value = ["mcc", "mnc", "area", "cid"], unique = true)]
+)
 data class TowerDbEntry(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val radio: String, // "LTE", "NR", "GSM", "UMTS"

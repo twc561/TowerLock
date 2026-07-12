@@ -2,6 +2,7 @@ package com.example.data
 
 import android.content.Context
 import android.util.Log
+import com.example.location.LocationTracker
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.withContext
@@ -50,11 +51,19 @@ class CellRepository(
         // 1. Search local database
         val localTower = cellDao.findTower(mcc, mnc, area, cid)
         if (localTower != null) {
+            // Backfill the address once, so we don't re-geocode this same tower on every poll
+            val address = if (localTower.address.isNullOrBlank()) {
+                val resolved = LocationTracker.reverseGeocode(context, localTower.lat, localTower.lon)
+                cellDao.updateTowerAddress(mcc, mnc, area, cid, resolved)
+                resolved
+            } else {
+                localTower.address
+            }
             return@withContext TowerLocationResult(
                 lat = localTower.lat,
                 lon = localTower.lon,
                 range = localTower.range,
-                address = localTower.address,
+                address = address,
                 source = "Local Database"
             )
         }
@@ -74,8 +83,10 @@ class CellRepository(
                                 val lat = json.getDouble("lat")
                                 val lon = json.getDouble("lon")
                                 val range = json.optInt("range", 1000)
-                                
-                                // Cache it in our local database
+                                val address = LocationTracker.reverseGeocode(context, lat, lon)
+
+                                // Cache it in our local database, address included, so we
+                                // never need to hit OpenCelliD or the geocoder for this cell again
                                 val cachedTower = TowerDbEntry(
                                     radio = if (tech.contains("5G")) "NR" else "LTE",
                                     mcc = mcc,
@@ -85,7 +96,7 @@ class CellRepository(
                                     lat = lat,
                                     lon = lon,
                                     range = range,
-                                    address = null
+                                    address = address
                                 )
                                 cellDao.insertTower(cachedTower)
 
@@ -93,7 +104,7 @@ class CellRepository(
                                     lat = lat,
                                     lon = lon,
                                     range = range,
-                                    address = null,
+                                    address = address,
                                     source = "OpenCelliD API"
                                 )
                             }

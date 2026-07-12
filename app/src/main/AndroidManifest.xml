@@ -9,7 +9,7 @@
     <uses-permission android:name="android.permission.READ_PHONE_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
-    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
 
     <application
         android:allowBackup="true"
@@ -33,16 +33,13 @@
             </intent-filter>
         </activity>
 
-        <!-- Foreground Monitoring Service -->
+        <!-- Foreground Monitoring Service: continuously tracks device location to resolve
+             serving cell tower position, so it must declare the location FGS type. -->
         <service
             android:name=".service.TowerMonitoringService"
             android:enabled="true"
             android:exported="false"
-            android:foregroundServiceType="specialUse">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="TowerLock Pro monitors real-time cellular towers for safety analytics." />
-        </service>
+            android:foregroundServiceType="location" />
 
         <!-- App Widget Provider -->
         <receiver

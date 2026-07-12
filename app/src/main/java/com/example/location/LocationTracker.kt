@@ -9,7 +9,6 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import android.location.Geocoder
 import android.location.Location
-import android.os.Build
 import android.os.Looper
 import android.util.Log
 import androidx.core.content.ContextCompat
@@ -143,35 +142,27 @@ class LocationTracker(
 
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
 
-    /**
-     * Reverse geocodes a latitude/longitude to a street address.
-     * Uses asynchronous Geocoder API on API 33+ or fallback on older versions.
-     */
-    suspend fun reverseGeocode(lat: Double, lon: Double): String = withContext(Dispatchers.IO) {
-        val geocoder = Geocoder(context, Locale.getDefault())
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                // Async API is recommended but for simpler code block on IO dispatcher
-                val addresses = geocoder.getFromLocation(lat, lon, 1)
-                if (!addresses.isNullOrEmpty()) {
-                    val address = addresses[0]
-                    return@withContext address.getAddressLine(0) ?: "${address.locality ?: "Unknown"}, ${address.adminArea ?: "Unknown"}"
-                }
-            } else {
+    companion object {
+        /**
+         * Reverse geocodes a latitude/longitude to a street address. Static so callers
+         * that don't need a full LocationTracker (sensors, fused location client) can
+         * still resolve an address, e.g. when caching a newly-discovered tower.
+         */
+        suspend fun reverseGeocode(context: Context, lat: Double, lon: Double): String = withContext(Dispatchers.IO) {
+            val geocoder = Geocoder(context, Locale.getDefault())
+            try {
                 @Suppress("DEPRECATION")
                 val addresses = geocoder.getFromLocation(lat, lon, 1)
                 if (!addresses.isNullOrEmpty()) {
                     val address = addresses[0]
                     return@withContext address.getAddressLine(0) ?: "${address.locality ?: "Unknown"}, ${address.adminArea ?: "Unknown"}"
                 }
+            } catch (e: Exception) {
+                Log.e("LocationTracker", "Reverse geocode failed", e)
             }
-        } catch (e: Exception) {
-            Log.e("LocationTracker", "Reverse geocode failed", e)
+            return@withContext String.format(Locale.US, "Lat: %.5f, Lon: %.5f", lat, lon)
         }
-        return@withContext String.format(Locale.US, "Lat: %.5f, Lon: %.5f", lat, lon)
-    }
 
-    companion object {
         /**
          * Calculate distance between two coordinates in meters
          */
